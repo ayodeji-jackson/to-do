@@ -1,23 +1,40 @@
 import { Text, View, FlatList, Pressable, ScrollView, useWindowDimensions} from "react-native";
-import { AntDesign, EvilIcons } from '@expo/vector-icons';
+import { AntDesign, EvilIcons, SimpleLineIcons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { router } from "expo-router";
 import { Checkbox } from 'expo-checkbox';
-import { storage } from "./new";
+import { addTask, storage } from "./_layout";
 import { Task } from "@/types";
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Swipeable, { SwipeableMethods, SwipeDirection } from 'react-native-gesture-handler/ReanimatedSwipeable';
 import Reanimated, { SharedValue, useAnimatedStyle } from "react-native-reanimated";
+import Voice, { SpeechErrorEvent, SpeechResultsEvent } from '@react-native-voice/voice';
+import { splitPhrasesWithCompromise } from "@/utils";
 
 export default function () {
   const data: Task[] = JSON.parse(storage.getString('data') || '[]');
   const [tasks, setTasks] = useState(data);
   const [isFetching, setIsFetching] = useState(false);
+  const [speechText, setSpeechText] = useState<string[]>([]);
+  // const [partialText, setPartialText] = useState<string[]>([]);
+  const [isListening, setIsListening] = useState(false);
   const { width } = useWindowDimensions();
 
   useEffect(() => {
     storage.set('data', JSON.stringify(tasks));
   }, [tasks]);
+
+  useEffect(() => {
+    Voice.onSpeechResults = onSpeechResults;
+    // Voice.onSpeechPartialResults = onPartialResults;
+    Voice.onSpeechStart = onSpeechStart;
+    Voice.onSpeechEnd = onSpeechEnd;
+    Voice.onSpeechError = handleSpeechError;
+
+    return () => {
+      Voice.destroy().then(Voice.removeAllListeners);
+    };
+  }, []);
 
   const handleCheck = (v: boolean, i: number) => 
     setTasks(
@@ -52,6 +69,36 @@ export default function () {
     );
   }
 
+  useEffect(() => {
+    if (isListening) return;
+
+    addTask(splitPhrasesWithCompromise(speechText.join('; ')));
+  }, [speechText]);
+
+  const startDictation = async () => {
+    try {
+      await Voice.start('en-US');
+    } catch (e) { console.error(e) }
+  };
+
+  const stopDictation = async () => {
+    try {
+      // await Voice.cancel();
+      await Voice.stop();
+      // await Voice.destroy();
+    } catch (e) { console.error(e) }
+  };
+
+  const onSpeechResults = (e: SpeechResultsEvent) => setSpeechText(e.value && e.value.length ? e.value : []);
+  // const onPartialResults = (e: SpeechResultsEvent) => setPartialText(e.value && e.value.length ? e.value : []);
+  const onSpeechStart = () => setIsListening(true);
+  const onSpeechEnd = () => setIsListening(false);
+
+  const handleSpeechError = (e: SpeechErrorEvent) => {
+    // console.error(e);
+    setIsListening(false);
+  };
+
   return (
     <GestureHandlerRootView>
       <View style={{ flex: 1 }}>
@@ -80,6 +127,12 @@ export default function () {
             <AntDesign name="plus" color='white' size={15} />
           </View>
           <Text style={{ fontSize: 16, fontWeight: 500 }}>New task</Text>
+        </Pressable>
+        <Pressable onPress={() => isListening ? stopDictation() : startDictation()} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, position: 'absolute', bottom: 24, right: 16 }}>
+          <View style={{ height: 30, width: 30, backgroundColor: isListening ? 'black' : 'transparent', borderRadius: 999, alignItems: 'center', justifyContent: 'center', }}>
+            <SimpleLineIcons name="microphone" color={isListening ? 'white' : 'black'} size={25} />
+          </View>
+          <Text style={{ fontSize: 16, fontWeight: 500 }}>{isListening ? 'Listening...' : 'Dictate'}</Text>
         </Pressable>
       </View>
     </GestureHandlerRootView>
